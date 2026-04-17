@@ -1,0 +1,78 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Dynamic Risk Prediction API",
+    "version": "2.0.0",
+    "description": "Real-time rolling VaR and risk alerts for US equities"
+  },
+  "servers": [
+    {
+      "url": "https://your-render-url.onrender.com",
+      "description": "Production server"
+    },
+    {
+      "url": "http://127.0.0.1:8000",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/risk/{ticker}": {
+      "get": {
+        "operationId": "getRiskMetrics",
+        "summary": "Get rolling risk metrics for a stock",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["AAPL", "TSLA", "MSFT", "NVDA", "JPM", "XOM"]
+            },
+            "description": "Stock ticker symbol"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Risk metrics returned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticker": {"type": "string"},
+                    "var_95": {"type": "number"},
+                    "volatility": {"type": "number"},
+                    "risk_class": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alert/{ticker}": {
+      "get": {
+        "operationId": "getRiskAlert",
+        "summary": "Get intelligent risk alert",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["AAPL", "TSLA", "MSFT", "NVDA", "JPM", "XOM"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alert data returned"
+          }
+        }
+      }
+    }
+  }
+}
