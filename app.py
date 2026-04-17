@@ -145,86 +145,50 @@ def calculate_portfolio_risk(holdings: dict):
 
 # ==================== 新增：风险趋势图生成 ====================
 
-@app.get("/chart/{ticker}")
-def generate_risk_chart(ticker: str, months: int = 12):
-    """
-    生成滚动VaR趋势图，返回Base64编码的图片
-    """
+ @app.get("/chart/{ticker}")
+def get_risk_chart(ticker: str, months: int = 12):
+    """简化版：返回趋势数据，不生成图片（避免matplotlib部署问题）"""
     ticker_upper = ticker.upper()
     if ticker_upper not in AVAILABLE_TICKERS:
-        raise HTTPException(status_code=404, detail=f"Ticker not available: {AVAILABLE_TICKERS}")
+        raise HTTPException(status_code=404, detail="Ticker not found")
     
-    # 获取该股票最近N个月的数据
+    # 获取历史数据
     stock_data = [r for r in RISK_DATA if r['ticker'] == ticker_upper]
     if len(stock_data) < 6:
-        raise HTTPException(status_code=404, detail="Insufficient data for chart")
+        raise HTTPException(status_code=404, detail="Insufficient data")
     
-    # 取最近months条数据
     recent_data = stock_data[-months:]
-    dates = [r['date'][:7] for r in recent_data]  # 取YYYY-MM格式
     var_values = [r['var_95_6m'] for r in recent_data]
+    dates = [r['date'][:7] for r in recent_data]  # YYYY-MM
     
-    # 创建图表
-    import matplotlib
-    matplotlib.use('Agg')  # 非交互式后端，适合服务器
-    import matplotlib.pyplot as plt
-    from io import BytesIO
-    import base64
+    # 计算趋势
+    first_val = var_values[0]
+    last_val = var_values[-1]
+    change_pct = ((last_val - first_val) / first_val * 100) if first_val != 0 else 0
     
-    plt.figure(figsize=(10, 5))
-    
-    # 绘制VaR曲线
-    plt.plot(dates, var_values, marker='o', linewidth=2, color='#e74c3c', label='VaR (95%)')
-    
-    # 添加风险阈值线
-    plt.axhline(y=15, color='orange', linestyle='--', alpha=0.7, label='High Risk (15%)')
-    plt.axhline(y=10, color='green', linestyle='--', alpha=0.7, label='Medium Risk (10%)')
-    
-    # 标注最高风险点
+    # 找出最高风险月份
     max_var = max(var_values)
     max_idx = var_values.index(max_var)
-    plt.annotate(f'Peak: {max_var:.1f}%', 
-                 xy=(dates[max_idx], max_var), 
-                 xytext=(10, 10), 
-                 textcoords='offset points',
-                 bbox=dict(boxstyle='round,pad=0.3', facecolor='yellow', alpha=0.7))
+    peak_date = dates[max_idx]
     
-    plt.title(f'{ticker_upper} - {months} Month Rolling VaR Trend', fontsize=14, fontweight='bold')
-    plt.xlabel('Date')
-    plt.ylabel('VaR (%)')
-    plt.xticks(rotation=45)
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.tight_layout()
-    
-    # 转为Base64
-    buffer = BytesIO()
-    plt.savefig(buffer, format='png', dpi=100)
-    buffer.seek(0)
-    img_base64 = base64.b64encode(buffer.read()).decode('utf-8')
-    plt.close()
-    
-    # 判断趋势
-    first_half = var_values[:len(var_values)//2]
-    second_half = var_values[len(var_values)//2:]
-    avg_first = sum(first_half) / len(first_half)
-    avg_second = sum(second_half) / len(second_half)
-    
-    if avg_second > avg_first * 1.2:
-        trend = "显著上升 ⚠️"
-    elif avg_second < avg_first * 0.8:
-        trend = "下降趋势 ✅"
+    # 趋势判断
+    if change_pct > 20:
+        trend = "显著上升 ⚠️ 风险正在累积"
+    elif change_pct < -20:
+        trend = "显著下降 ✅ 风险缓解"
     else:
         trend = "相对稳定"
     
     return {
         "ticker": ticker_upper,
-        "chart_base64": img_base64,
-        "trend": trend,
-        "current_var": var_values[-1],
-        "max_var_6m": max(var_values[-6:]) if len(var_values) >= 6 else max(var_values),
-        "months_analyzed": len(dates)
+        "chart_available": False,
+        "trend_summary": trend,
+        "period": f"{dates[0]} 至 {dates[-1]}",
+        "var_start": round(first_val, 2),
+        "var_current": round(last_val, 2),
+        "var_change_pct": round(change_pct, 1),
+        "peak_var": round(max_var, 2),
+        "peak_date": peak_date,
+        "data_points": len(var_values),
+        "interpretation": f"过去{months}个月，{ticker_upper}的VaR从{first_val:.1f}%变化至{last_val:.1f}%，{trend}。最高风险出现在{peak_date}（{max_var:.1f}%）。"
     }
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
