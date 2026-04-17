@@ -2,24 +2,21 @@
   "openapi": "3.0.0",
   "info": {
     "title": "Dynamic Risk Prediction API",
-    "version": "2.0.0",
-    "description": "Real-time rolling VaR and risk alerts for US equities"
+    "description": "Real-time rolling VaR, volatility, portfolio risk, and chart generation for US equities",
+    "version": "3.0.0"
   },
   "servers": [
     {
       "url": "https://acc102-track3-dynamic-risk-prediction-ctnr.onrender.com",
-      "description": "Production server"
-    },
-    {
-      "url": "http://127.0.0.1:8000",
-      "description": "Local development"
+      "description": "Production Render Server"
     }
   ],
   "paths": {
     "/risk/{ticker}": {
       "get": {
         "operationId": "getRiskMetrics",
-        "summary": "Get rolling risk metrics for a stock",
+        "summary": "获取股票动态风险指标",
+        "description": "获取指定股票的6个月滚动VaR、年化波动率、夏普比率",
         "parameters": [
           {
             "name": "ticker",
@@ -29,21 +26,24 @@
               "type": "string",
               "enum": ["AAPL", "TSLA", "MSFT", "NVDA", "JPM", "XOM"]
             },
-            "description": "Stock ticker symbol"
+            "description": "股票代码（仅支持6只美股）"
           }
         ],
         "responses": {
           "200": {
-            "description": "Risk metrics returned",
+            "description": "风险指标数据",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "ticker": {"type": "string"},
-                    "var_95": {"type": "number"},
-                    "volatility": {"type": "number"},
-                    "risk_class": {"type": "string"}
+                    "date": {"type": "string"},
+                    "var_95": {"type": "number", "description": "VaR 95%置信度(%)"},
+                    "var_99": {"type": "number"},
+                    "volatility": {"type": "number", "description": "年化波动率(%)"},
+                    "sharpe": {"type": "number"},
+                    "risk_class": {"type": "string", "enum": ["Low", "Medium", "High"]}
                   }
                 }
               }
@@ -55,7 +55,8 @@
     "/alert/{ticker}": {
       "get": {
         "operationId": "getRiskAlert",
-        "summary": "Get intelligent risk alert",
+        "summary": "获取智能风险预警",
+        "description": "基于历史分位数的风险等级和预警信息",
         "parameters": [
           {
             "name": "ticker",
@@ -69,7 +70,121 @@
         ],
         "responses": {
           "200": {
-            "description": "Alert data returned"
+            "description": "预警信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticker": {"type": "string"},
+                    "risk_level": {"type": "string", "enum": ["Low", "Medium", "High"]},
+                    "var_95": {"type": "number"},
+                    "alert_message": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/portfolio": {
+      "post": {
+        "operationId": "calculatePortfolioRisk",
+        "summary": "计算投资组合风险",
+        "description": "基于持仓权重计算组合VaR（保守估计）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "example": {"AAPL": 0.3, "TSLA": 0.2, "MSFT": 0.5},
+                "properties": {
+                  "AAPL": {"type": "number"},
+                  "TSLA": {"type": "number"},
+                  "MSFT": {"type": "number"},
+                  "NVDA": {"type": "number"},
+                  "JPM": {"type": "number"},
+                  "XOM": {"type": "number"}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "组合风险结果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "portfolio_var_95": {"type": "number", "description": "组合VaR(%)"},
+                    "portfolio_volatility": {"type": "number"},
+                    "risk_level": {"type": "string"},
+                    "concentration_risk": {"type": "string"},
+                    "recommendation": {"type": "string"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/chart/{ticker}": {
+      "get": {
+        "operationId": "getRiskChart",
+        "summary": "获取风险趋势图数据",
+        "description": "生成滚动VaR趋势图并返回Base64编码",
+        "parameters": [
+          {
+            "name": "ticker",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["AAPL", "TSLA", "MSFT", "NVDA", "JPM", "XOM"]
+            }
+          },
+          {
+            "name": "months",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 12
+            },
+            "description": "分析月数（默认12个月）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "趋势图数据",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticker": {"type": "string"},
+                    "chart_base64": {"type": "string", "description": "Base64编码的PNG图片"},
+                    "trend": {"type": "string", "description": "趋势描述"},
+                    "current_var": {"type": "number"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "API状态检查",
+        "responses": {
+          "200": {
+            "description": "API状态"
           }
         }
       }
