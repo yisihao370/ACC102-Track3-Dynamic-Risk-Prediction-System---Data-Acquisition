@@ -90,11 +90,30 @@ def get_alert(ticker: str):
     }
 
 @app.post("/portfolio")
-def calculate_portfolio_risk(holdings: dict):
+def calculate_portfolio_risk(request: dict):  # 改为接收整个请求体
+    """
+    计算投资组合风险
+    holdings格式: {"AAPL": 0.3, "TSLA": 0.7} （权重之和应=1）
+    """
+    holdings = request.get("holdings", {})
+    
+    # 处理 Coze 发送的字符串格式 JSON（带转义的情况）
+    if isinstance(holdings, str):
+        import json
+        try:
+            holdings = json.loads(holdings)
+        except:
+            raise HTTPException(status_code=400, detail="holdings必须是有效的JSON格式")
+    
+    # 确保 holdings 是 dict
+    if not isinstance(holdings, dict):
+        raise HTTPException(status_code=400, detail="holdings必须是对象格式，如{'AAPL': 0.3}")
+    
     tickers = list(holdings.keys())
     total_var = 0
     total_vol = 0
     valid_tickers = []
+    
     for ticker, weight in holdings.items():
         ticker_upper = ticker.upper()
         if ticker_upper in AVAILABLE_TICKERS:
@@ -103,16 +122,18 @@ def calculate_portfolio_risk(holdings: dict):
                 total_var += data['var_95_6m'] * weight
                 total_vol += (data['vol_6m'] * 100) * weight
                 valid_tickers.append(ticker_upper)
+    
     risk_level = "High" if total_var > 15 else "Medium" if total_var > 10 else "Low"
     max_weight = max(holdings.values()) if holdings else 0
     concentration_risk = "High" if max_weight > 0.5 else "Medium" if max_weight > 0.3 else "Low"
+    
     return {
         "portfolio_var_95": round(total_var, 2),
         "portfolio_volatility": round(total_vol, 2),
         "risk_level": risk_level,
         "concentration_risk": concentration_risk,
         "holdings_count": len(valid_tickers),
-        "diversification_note": "这是未考虑分散化效应的保守估计，实际风险应低10-30%",
+        "diversification_note": "这是未考虑分散化效应的保守估计（假设股票完全相关），实际风险应低10-30%",
         "recommendation": "降低仓位" if risk_level == "High" else "适当对冲" if risk_level == "Medium" else "风险可控"
     }
 
