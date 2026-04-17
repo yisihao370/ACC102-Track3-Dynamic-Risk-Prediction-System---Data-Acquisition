@@ -1,9 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import pandas as pd
-import numpy as np
+import csv
 from datetime import datetime
-from typing import Optional, Literal
+from typing import List, Dict
 
 app = FastAPI(
     title="Dynamic Risk Prediction API",
@@ -19,33 +18,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 加载数据
-print("Loading data...")
-try:
-    risk_df = pd.read_csv('dynamic_risk_metrics.csv', parse_dates=['date'])
-    AVAILABLE_TICKERS = risk_df['ticker'].unique().tolist()
-    print(f"Loaded {len(AVAILABLE_TICKERS)} stocks: {AVAILABLE_TICKERS}")
-except Exception as e:
-    print(f"Error: {e}")
-    AVAILABLE_TICKERS = []
+# 加载 CSV 数据（不使用 Pandas，纯 Python）
+def load_risk_data():
+    data = []
+    tickers = set()
+    try:
+        with open('dynamic_risk_metrics.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                row['date'] = row['date'][:10]  # 简化日期
+                # 转换数值字段
+                for key in ['var_95_6m', 'var_99_6m', 'vol_6m', 'sharpe_6m']:
+                    if key in row and row[key]:
+                        row[key] = float(row[key])
+                data.append(row)
+                tickers.add(row['ticker'])
+        return data, sorted(list(tickers))
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return [], []
+
+RISK_DATA, AVAILABLE_TICKERS = load_risk_data()
+print(f"Loaded {len(RISK_DATA)} records for {len(AVAILABLE_TICKERS)} tickers: {AVAILABLE_TICKERS}")
+
+def get_latest_by_ticker(ticker: str):
+    """获取某只股票的最新数据"""
+    ticker_data = [r for r in RISK_DATA if r['ticker'] == ticker.upper()]
+    if not ticker_data:
+        return None
+    # 按日期排序，取最后一条
+    return ticker_data[-1]
 
 @app.get("/")
 def root():
-    return {"tickers": AVAILABLE_TICKERS, "status": "API is running"}
+    return {
+        "tickers": AVAILABLE_TICKERS,
+        "status": "API is running",
+        "records_loaded": len(RISK_DATA)
+    }
 
 @app.get("/risk/{ticker}")
 def get_risk(ticker: str):
     if ticker.upper() not in AVAILABLE_TICKERS:
         raise HTTPException(status_code=404, detail=f"Ticker not found. Available: {AVAILABLE_TICKERS}")
     
-    data = risk_df[risk_df['ticker'] == ticker.upper()].iloc[-1]
+    data = get_latest_by_ticker(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail="No data available")
+    
     return {
         "ticker": ticker,
-        "date": str(data['date']),
-        "var_95": round(float(data['var_95_6m']), 2),
-        "volatility": round(float(data['vol_6m'] * 100), 2),
-        "sharpe": round(float(data['sharpe_6m']), 2),
-        "risk_class": str(data['risk_class'])
+        "date": data['date'],
+        "var_95": round(data['var_95_6m'], 2),
+        "var_99": round(data['var_99_6m'], 2),
+        "volatility": round(data['vol_6m'] * 100, 2),
+        "sharpe": round(data['sharpe_6m'], 2),
+        "risk_class": data.get('risk_class', 'Unknown')
     }
 
 @app.get("/alert/{ticker}")
@@ -53,19 +81,21 @@ def get_alert(ticker: str):
     if ticker.upper() not in AVAILABLE_TICKERS:
         raise HTTPException(status_code=404, detail="Ticker not found")
     
-    data = risk_df[risk_df['ticker'] == ticker.upper()].iloc[-1]
-    var = float(data['var_95_6m'])
+    data = get_latest_by_ticker(ticker)
+    if not data:
+        raise HTTPException(status_code=404, detail="No data")
     
-    # 简单预警逻辑
+    var = data['var_95_6m']
+    
     if var > 15:
         level = "High"
-        msg = "Risk level is critically high. Consider reducing position."
+        msg = "⚠️ 当前处于高风险期！VaR超过15%，建议减仓避险。"
     elif var > 10:
         level = "Medium"
-        msg = "Elevated risk detected. Monitor closely."
+        msg = "⚡ 风险等级中等，建议密切关注市场动态。"
     else:
         level = "Low"
-        msg = "Risk level is within normal range."
+        msg = "✅ 风险水平正常，处于安全区间。"
     
     return {
         "ticker": ticker,
